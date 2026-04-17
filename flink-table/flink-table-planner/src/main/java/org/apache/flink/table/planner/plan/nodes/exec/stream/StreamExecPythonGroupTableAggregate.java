@@ -68,6 +68,10 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
             "org.apache.flink.table.runtime.operators.python.aggregate."
                     + "PythonStreamGroupTableAggregateOperator";
 
+    private static final String EMBEDDED_PYTHON_STREAM_TABLE_AGGREGATE_OPERATOR_NAME =
+            "org.apache.flink.table.runtime.operators.python.aggregate."
+                    + "EmbeddedPythonStreamGroupTableAggregateOperator";
+
     private final int[] grouping;
     private final AggregateCall[] aggCalls;
     private final boolean[] aggCallNeedRetractions;
@@ -184,9 +188,14 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
             long maxIdleStateRetentionTime,
             boolean generateUpdateBefore,
             int indexOfCountStar) {
+        boolean isInProcessMode =
+                CommonPythonUtil.isPythonWorkerInProcessMode(config, classLoader);
         Class<?> clazz =
                 CommonPythonUtil.loadClass(
-                        PYTHON_STREAM_TABLE_AGGREGATE_OPERATOR_NAME, classLoader);
+                        isInProcessMode
+                                ? PYTHON_STREAM_TABLE_AGGREGATE_OPERATOR_NAME
+                                : EMBEDDED_PYTHON_STREAM_TABLE_AGGREGATE_OPERATOR_NAME,
+                        classLoader);
         try {
             Constructor<?> ctor =
                     clazz.getConstructor(

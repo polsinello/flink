@@ -127,6 +127,11 @@ public class StreamExecPythonGroupWindowAggregate extends StreamExecAggregateBas
                     "org.apache.flink.table.runtime.operators.python.aggregate."
                             + "PythonStreamGroupWindowAggregateOperator";
 
+    private static final String
+            EMBEDDED_STREAM_PYTHON_GROUP_WINDOW_AGGREGATE_FUNCTION_OPERATOR_NAME =
+                    "org.apache.flink.table.runtime.operators.python.aggregate."
+                            + "EmbeddedPythonStreamGroupWindowAggregateOperator";
+
     private static final String GENERAL_STREAM_PYTHON_CREATE_TUMBLING_GROUP_WINDOW_METHOD =
             "createTumblingGroupWindowAggregateOperator";
     private static final String GENERAL_STREAM_PYTHON_CREATE_SLIDING_GROUP_WINDOW_METHOD =
@@ -557,9 +562,13 @@ public class StreamExecPythonGroupWindowAggregate extends StreamExecAggregateBas
                     boolean countStarInserted,
                     long allowance,
                     ZoneId shiftTimeZone) {
+        boolean isInProcessMode =
+                CommonPythonUtil.isPythonWorkerInProcessMode(config, classLoader);
         Class clazz =
                 CommonPythonUtil.loadClass(
-                        GENERAL_STREAM_PYTHON_GROUP_WINDOW_AGGREGATE_FUNCTION_OPERATOR_NAME,
+                        isInProcessMode
+                                ? GENERAL_STREAM_PYTHON_GROUP_WINDOW_AGGREGATE_FUNCTION_OPERATOR_NAME
+                                : EMBEDDED_STREAM_PYTHON_GROUP_WINDOW_AGGREGATE_FUNCTION_OPERATOR_NAME,
                         classLoader);
 
         boolean isRowTime = AggregateUtil.isRowtimeAttribute(window.timeAttribute());

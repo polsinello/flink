@@ -80,6 +80,9 @@ public class StreamExecPythonGroupAggregate extends StreamExecAggregateBase {
     private static final String PYTHON_STREAM_AGGREAGTE_OPERATOR_NAME =
             "org.apache.flink.table.runtime.operators.python.aggregate.PythonStreamGroupAggregateOperator";
 
+    private static final String EMBEDDED_PYTHON_STREAM_AGGREGATE_OPERATOR_NAME =
+            "org.apache.flink.table.runtime.operators.python.aggregate.EmbeddedPythonStreamGroupAggregateOperator";
+
     @JsonProperty(FIELD_NAME_GROUPING)
     private final int[] grouping;
 
@@ -227,8 +230,14 @@ public class StreamExecPythonGroupAggregate extends StreamExecAggregateBase {
             long maxIdleStateRetentionTime,
             int indexOfCountStar,
             boolean countStarInserted) {
+        boolean isInProcessMode =
+                CommonPythonUtil.isPythonWorkerInProcessMode(config, classLoader);
         Class<?> clazz =
-                CommonPythonUtil.loadClass(PYTHON_STREAM_AGGREAGTE_OPERATOR_NAME, classLoader);
+                CommonPythonUtil.loadClass(
+                        isInProcessMode
+                                ? PYTHON_STREAM_AGGREAGTE_OPERATOR_NAME
+                                : EMBEDDED_PYTHON_STREAM_AGGREGATE_OPERATOR_NAME,
+                        classLoader);
         try {
             Constructor<?> ctor =
                     clazz.getConstructor(
