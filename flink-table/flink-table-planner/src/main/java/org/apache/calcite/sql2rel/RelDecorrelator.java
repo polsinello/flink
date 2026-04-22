@@ -689,6 +689,70 @@ public class RelDecorrelator implements ReflectiveVisitor {
                                 : relBuilder.groupKey(newGroupSet, newGroupSets),
                         newAggCalls);
 
+        // ----- FLINK MODIFICATION BEGIN -----
+        // Flink's LogicalWindowAggregate appends window-property fields (e.g.
+        // window-start / window-end / rowtime) to its row type via
+        // WindowAggregate.deriveRowType(). The standard Aggregate handling above
+        // builds a plain Aggregate whose row type lacks those fields, and an
+        // outputMap whose keys cover only [groupKeys + aggCalls). When a parent
+        // Project references a window-property index, getNewForOldInputRef NPEs
+        // (frame.oldToNewOutputs.get(idx) returns null).
+        //
+        // To preserve correctness we (a) wrap the new Aggregate back in a
+        // LogicalWindowAggregate, restoring window + namedProperties, and
+        // (b) extend outputMap with mappings for window-property positions.
+        // The wrap happens BEFORE the omittedConstants post-Project so that
+        // shiftMapping below naturally adjusts the window-property positions
+        // when constants are inserted into the projection list.
+        if (rel instanceof org.apache.flink.table.planner.plan.nodes.calcite.LogicalWindowAggregate) {
+            org.apache.flink.table.planner.plan.nodes.calcite.LogicalWindowAggregate windowAgg = (org.apache.flink.table.planner.plan.nodes.calcite.LogicalWindowAggregate) rel;
+            RelNode aggOnTop = relBuilder.build();
+            if (aggOnTop instanceof Aggregate) {
+                RelNode wrapped = org.apache.flink.table.planner.plan.nodes.calcite.LogicalWindowAggregate.create(
+                        windowAgg.getWindow(),
+                        windowAgg.getNamedProperties(),
+                        (Aggregate) aggOnTop);
+                relBuilder.push(wrapped);
+                // Rewrite outputMap to use OLD OUTPUT POSITIONS as keys for the
+                // entire LogicalWindowAggregate row type. The standard handler
+                // above uses INPUT positions for group keys (line "outputMap.put(idx, newPos)"),
+                // which silently collide with the agg output positions when the
+                // group-key input position falls inside [oldGroupKeyCount, oldGroupKeyCount+aggCount).
+                // Window properties were never mapped at all. Layout for LWA:
+                //   OLD: [groupKeys @ 0..gK), aggs @ [gK..gK+aC), props @ [gK+aC..)]
+                //   NEW: [groupKeys @ 0..gK'), aggs @ [gK'..gK'+aC), props @ [gK'+aC..)]
+                //   where gK' = newGroupKeyCount may exceed gK if input pushed corVar group keys.
+                int aggCount = oldAggCalls.size();
+                int numProps = windowAgg.getNamedProperties().size();
+                // Non-constant group keys: map OLD OUTPUT pos -> NEW OUTPUT pos
+                // in the wrapped LWA (before any omittedConstants post-project).
+                // Constant group keys are NOT mapped here — the omittedConstants
+                // block below re-inserts them via a Project and adds the correct
+                // mapping with shiftMapping adjusting everything else.
+                final java.util.List<Integer> gkInputPositions = rel.getGroupSet().asList();
+                int newGkPos = 0;
+                for (int gk = 0; gk < oldGroupKeyCount; gk++) {
+                    if (omittedConstants.containsKey(gkInputPositions.get(gk))) {
+                        continue;
+                    }
+                    outputMap.put(gk, newGkPos);
+                    newGkPos++;
+                }
+                for (int ac = 0; ac < aggCount; ac++) {
+                    outputMap.put(oldGroupKeyCount + ac, newGroupKeyCount + ac);
+                }
+                for (int wp = 0; wp < numProps; wp++) {
+                    outputMap.put(oldGroupKeyCount + aggCount + wp, newGroupKeyCount + aggCount + wp);
+                }
+            } else {
+                // Defensive: unexpected non-Aggregate result. Push back unchanged
+                // so we degrade to existing (broken-but-pre-existing) behaviour
+                // rather than throwing.
+                relBuilder.push(aggOnTop);
+            }
+        }
+        // ----- FLINK MODIFICATION END -----
+
         if (!omittedConstants.isEmpty()) {
             final List<RexNode> postProjects = new ArrayList<>(relBuilder.fields());
             for (Map.Entry<Integer, RexLiteral> entry :
