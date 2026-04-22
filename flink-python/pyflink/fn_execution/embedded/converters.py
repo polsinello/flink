@@ -195,6 +195,19 @@ class ListDataConverter(DataConverter):
 
 
 class ArrayDataConverter(ListDataConverter):
+    """Converter for ARRAY columns in embedded (thread) mode.
+
+    The return types are intentionally asymmetric:
+
+    - ``to_internal`` returns a ``list`` to match process-mode's Beam-based
+      path (UDFs see mutable sequences on both modes; returning a ``tuple``
+      would make ``arr.append(x)`` / ``arr[i] = v`` work only in process mode).
+    - ``to_external`` returns a ``tuple`` because pemja's Python→Java coercion
+      maps ``tuple`` → ``Object[]`` (what the downstream Java ``ArrayDataConverter``
+      expects) but ``list`` → ``ArrayList`` (wrong shape — would break
+      ``ArrayDataConverter.toExternalImpl``'s array-element loop).
+    """
+
     def __init__(self, field_converter: DataConverter):
         super(ArrayDataConverter, self).__init__(field_converter)
 
@@ -369,11 +382,13 @@ class InstantConverter(DataConverter):
             delta = value - _dt.datetime(1970, 1, 1)
         else:
             delta = value - _dt.datetime(1970, 1, 1, tzinfo=_dt.timezone.utc)
-        epoch_s = int(delta.total_seconds())
-        nano = (
-            delta.microseconds + (delta.total_seconds() - epoch_s) * 1_000_000
-        ) * 1000
-        return JInstant.ofEpochSecond(epoch_s, int(nano))
+        # Compute via integer microseconds to stay correct for pre-1970
+        # (negative) epochs: int(-99.3) == -99 truncates toward zero, which
+        # would produce a wrong (epoch_s, nano) pair. divmod flooring
+        # guarantees 0 <= us_rem < 1_000_000.
+        total_us = delta // _dt.timedelta(microseconds=1)
+        epoch_s, us_rem = divmod(total_us, 1_000_000)
+        return JInstant.ofEpochSecond(epoch_s, us_rem * 1000)
 
 
 class DataStreamLocalDateTimeConverter(DataConverter):

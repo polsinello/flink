@@ -505,11 +505,8 @@ public final class PythonTypeUtils {
     public static final class TimestampLocalDateTimeDataConverter
             extends DataConverter<TimestampData, java.time.LocalDateTime, Object> {
 
-        private final int precision;
-
         TimestampLocalDateTimeDataConverter(int precision) {
             super(new DataFormatConverters.LocalDateTimeConverter(precision));
-            this.precision = precision;
         }
 
         @Override
@@ -544,11 +541,8 @@ public final class PythonTypeUtils {
     public static final class TimestampInstantDataConverter
             extends DataConverter<TimestampData, java.time.Instant, Object> {
 
-        private final int precision;
-
         TimestampInstantDataConverter(int precision) {
             super(new DataFormatConverters.InstantConverter(precision));
-            this.precision = precision;
         }
 
         @Override
@@ -776,29 +770,6 @@ public final class PythonTypeUtils {
     }
 
     /**
-     * Python datetime.time will be converted to Time in PemJa, so we need TimeDataConverter to
-     * convert Java Double to internal Integer.
-     */
-    public static final class TimeDataConverter extends DataConverter<Integer, Integer, Time> {
-
-        public static final TimeDataConverter INSTANCE = new TimeDataConverter();
-
-        private TimeDataConverter() {
-            super(DataFormatConverters.IntConverter.INSTANCE);
-        }
-
-        @Override
-        Integer toInternalImpl(Time value) {
-            return (int) value.getTime();
-        }
-
-        @Override
-        Time toExternalImpl(Integer value) {
-            return new Time(value);
-        }
-    }
-
-    /**
      * RowData will be converted to the Object Array [RowKind(as Long Object), Field Values(as
      * Object Array)].
      */
@@ -993,7 +964,7 @@ public final class PythonTypeUtils {
 
         @Override
         public DataConverter visit(DateType dateType) {
-            return new DateLocalDateDataConverter();
+            return DateLocalDateDataConverter.INSTANCE;
         }
 
         @Override

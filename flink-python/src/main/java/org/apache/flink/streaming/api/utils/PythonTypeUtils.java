@@ -864,8 +864,13 @@ public class PythonTypeUtils {
     }
 
     /**
-     * Python Long will be converted to Long in PemJa, so we need ByteDataConverter to convert Java
-     * Long to internal Byte.
+     * Narrows any pemja-coerced {@link Number} to {@link Byte}.
+     *
+     * <p>The external generic is widened to {@link Number} (rather than the nominally-mapped
+     * {@link Long}) because pemja may hand us {@link Long} (Python int), {@link Double} (Python
+     * float), {@link Integer}, or other {@link Number} subtypes depending on source widening;
+     * keeping the generic broad avoids a bridge-method {@link ClassCastException} at the call
+     * site. The actual narrowing happens in {@link #toInternal(Number)}.
      */
     public static final class ByteDataConverter extends DataConverter<Byte, Number> {
 
@@ -891,8 +896,8 @@ public class PythonTypeUtils {
     }
 
     /**
-     * Python Long will be converted to Long in PemJa, so we need ShortDataConverter to convert Java
-     * Long to internal Short.
+     * Narrows any pemja-coerced {@link Number} to {@link Short}. See {@link ByteDataConverter} for
+     * rationale on the widened {@link Number} generic.
      */
     public static final class ShortDataConverter extends DataConverter<Short, Number> {
 
@@ -918,8 +923,8 @@ public class PythonTypeUtils {
     }
 
     /**
-     * Accepts both Long (from pemja int→Long) and Double (from pemja float→Double)
-     * via the Number supertype, avoiding bridge-method ClassCastException.
+     * Narrows any pemja-coerced {@link Number} to {@link Integer}. See {@link ByteDataConverter}
+     * for rationale on the widened {@link Number} generic.
      */
     public static final class IntDataConverter extends DataConverter<Integer, Number> {
 
@@ -945,8 +950,8 @@ public class PythonTypeUtils {
     }
 
     /**
-     * Accepts both Double (from pemja float→Double) and Long (from pemja int→Long)
-     * via the Number supertype, avoiding bridge-method ClassCastException.
+     * Narrows any pemja-coerced {@link Number} to {@link Float}. See {@link ByteDataConverter} for
+     * rationale on the widened {@link Number} generic.
      */
     public static final class FloatDataConverter extends DataConverter<Float, Number> {
 
