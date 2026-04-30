@@ -25,6 +25,7 @@ import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.functions.FunctionDefinition;
 import org.apache.flink.table.functions.FunctionIdentifier;
 import org.apache.flink.table.functions.ProcessTableFunction;
+import org.apache.flink.table.functions.python.PythonFunction;
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.calcite.RexTableArgCall;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
@@ -32,6 +33,7 @@ import org.apache.flink.table.planner.functions.inference.OperatorBindingCallCon
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecProcessTableFunction;
+import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonProcessTableFunction;
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalTableFunctionScan;
 import org.apache.flink.table.planner.plan.utils.ChangelogPlanUtils;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
@@ -122,6 +124,11 @@ public class StreamPhysicalProcessTableFunction extends AbstractRelNode
         return (RexCall) scan.getCall();
     }
 
+    /** The PTF unique identifier derived in the constructor; {@code null} for non-set semantics. */
+    protected @Nullable String getUid() {
+        return uid;
+    }
+
     @Override
     public boolean requireWatermark() {
         // Even if there is no time attribute in the inputs, PTFs can work with event-time by taking
@@ -170,6 +177,25 @@ public class StreamPhysicalProcessTableFunction extends AbstractRelNode
         verifyTimeAttributes(getInputs(), call, inputChangelogModes, outputChangelogMode);
         final List<Ord<StaticArgument>> providedInputArgs = getProvidedInputArgs(call);
         verifyPassThroughColumnsForUpdates(providedInputArgs, outputChangelogMode);
+
+        final FunctionDefinition definition = ShortcutUtils.unwrapFunctionDefinition(call);
+        if (definition instanceof PythonFunction) {
+            // PyFlink PTF — route to the Python-specific exec node. The planner reaches this via
+            // the StreamPhysicalPythonProcessTableFunction subclass override; this branch is the
+            // fallback for direct base-class construction.
+            return new StreamExecPythonProcessTableFunction(
+                    unwrapTableConfig(this),
+                    getInputs().stream()
+                            .map(i -> InputProperty.DEFAULT)
+                            .collect(Collectors.toList()),
+                    FlinkTypeFactory.toLogicalRowType(rowType),
+                    getRelDetailedDescription(),
+                    uid,
+                    call,
+                    inputChangelogModes,
+                    outputChangelogMode);
+        }
+
         return new StreamExecProcessTableFunction(
                 unwrapTableConfig(this),
                 getInputs().stream().map(i -> InputProperty.DEFAULT).collect(Collectors.toList()),

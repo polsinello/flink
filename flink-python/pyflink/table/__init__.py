@@ -125,7 +125,7 @@ from pyflink.table.schema import Schema
 from pyflink.table.sql_dialect import SqlDialect
 from pyflink.table.statement_set import StatementSet
 from pyflink.table.table import GroupWindowedTable, GroupedTable, OverWindowedTable, Table, \
-    WindowGroupedTable
+    WindowGroupedTable, PartitionedTable
 from pyflink.table.table_config import TableConfig
 from pyflink.table.table_descriptor import TableDescriptor, FormatDescriptor
 from pyflink.table.table_environment import (TableEnvironment, StreamTableEnvironment)
@@ -135,6 +135,14 @@ from pyflink.table.table_schema import TableSchema
 from pyflink.table.types import DataTypes, UserDefinedType, Row, RowKind
 from pyflink.table.udf import FunctionContext, ScalarFunction, TableFunction, AggregateFunction, \
     TableAggregateFunction
+from pyflink.table.process_table_function import (
+    ProcessTableFunction, Context, OnTimerContext, TimeContext,
+    TableSemanticsView, ArgumentTrait, StateKind,
+    argument_hint, state_hint, ptf,
+)
+# PTFChangelogMode is the PTF input/output changelog enum, named to not collide
+# with the unrelated pyflink.table.changelog_mode.ChangelogMode exported above.
+from pyflink.table.process_table_function import PTFChangelogMode
 
 __all__ = [
     'TableEnvironment',
@@ -147,10 +155,22 @@ __all__ = [
     'GroupWindowedTable',
     'OverWindowedTable',
     'WindowGroupedTable',
+    'PartitionedTable',
     'ScalarFunction',
     'TableFunction',
     'AggregateFunction',
     'TableAggregateFunction',
+    'ProcessTableFunction',
+    'Context',
+    'OnTimerContext',
+    'TimeContext',
+    'TableSemanticsView',
+    'PTFChangelogMode',
+    'ArgumentTrait',
+    'StateKind',
+    'argument_hint',
+    'state_hint',
+    'ptf',
     'FunctionContext',
     'DataView',
     'ListView',

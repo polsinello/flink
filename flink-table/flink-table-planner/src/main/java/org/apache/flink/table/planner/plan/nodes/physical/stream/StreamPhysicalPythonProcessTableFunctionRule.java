@@ -44,20 +44,25 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Rule to convert a {@link FlinkLogicalTableFunctionScan} with table arguments into a {@link
- * StreamPhysicalProcessTableFunction}.
+ * Rule that converts a {@link FlinkLogicalTableFunctionScan} whose function is a Python {@link
+ * org.apache.flink.table.functions.ProcessTableFunction} (i.e. an instance of {@link
+ * PythonFunction}) into a {@link StreamPhysicalPythonProcessTableFunction}.
+ *
+ * <p>Mirrors the Java-PTF rule {@link StreamPhysicalProcessTableFunctionRule} but picks the
+ * Python-specific physical node, which lowers to a Python-bound exec node running the PTF on the
+ * Beam process-mode runner. Distribution / partition-key derivation is identical to the Java rule.
  */
-public class StreamPhysicalProcessTableFunctionRule extends ConverterRule {
+public class StreamPhysicalPythonProcessTableFunctionRule extends ConverterRule {
 
-    public static final StreamPhysicalProcessTableFunctionRule INSTANCE =
-            new StreamPhysicalProcessTableFunctionRule(
+    public static final StreamPhysicalPythonProcessTableFunctionRule INSTANCE =
+            new StreamPhysicalPythonProcessTableFunctionRule(
                     Config.INSTANCE.withConversion(
                             FlinkLogicalTableFunctionScan.class,
                             FlinkConventions.LOGICAL(),
                             FlinkConventions.STREAM_PHYSICAL(),
-                            "StreamPhysicalProcessTableFunctionRule"));
+                            "StreamPhysicalPythonProcessTableFunctionRule"));
 
-    private StreamPhysicalProcessTableFunctionRule(Config config) {
+    private StreamPhysicalPythonProcessTableFunctionRule(Config config) {
         super(config);
     }
 
@@ -65,15 +70,16 @@ public class StreamPhysicalProcessTableFunctionRule extends ConverterRule {
     public boolean matches(RelOptRuleCall call) {
         final FlinkLogicalTableFunctionScan scan = call.rel(0);
         if (scan.getInputs().isEmpty()) {
-            // Let StreamPhysicalConstantTableFunctionScanRule take over
             return false;
         }
         final RexCall rexCall = (RexCall) scan.getCall();
         final FunctionDefinition definition = ShortcutUtils.unwrapFunctionDefinition(rexCall);
-        return definition != null
-                && !StreamPhysicalMLPredictTableFunctionRule.isMLPredictFunction(definition)
-                && !(definition instanceof PythonFunction)
-                && definition.getKind() == FunctionKind.PROCESS_TABLE;
+        if (definition == null) {
+            return false;
+        }
+        // Require: PROCESS_TABLE function kind AND a PythonFunction marker.
+        return definition.getKind() == FunctionKind.PROCESS_TABLE
+                && definition instanceof PythonFunction;
     }
 
     @Override
@@ -88,7 +94,7 @@ public class StreamPhysicalProcessTableFunctionRule extends ConverterRule {
                 applyDistributionOnInputs(function, operands, rel.getInputs());
         final RelTraitSet providedTraitSet =
                 rel.getTraitSet().replace(FlinkConventions.STREAM_PHYSICAL());
-        return new StreamPhysicalProcessTableFunction(
+        return new StreamPhysicalPythonProcessTableFunction(
                 scan.getCluster(), providedTraitSet, newInputs, scan, scan.getRowType());
     }
 

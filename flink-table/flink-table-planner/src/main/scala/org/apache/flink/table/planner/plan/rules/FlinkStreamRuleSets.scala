@@ -18,7 +18,7 @@
 package org.apache.flink.table.planner.plan.rules
 
 import org.apache.flink.table.planner.plan.nodes.logical._
-import org.apache.flink.table.planner.plan.nodes.physical.stream.{StreamPhysicalMLPredictTableFunctionRule, StreamPhysicalProcessTableFunctionRule}
+import org.apache.flink.table.planner.plan.nodes.physical.stream.{StreamPhysicalMLPredictTableFunctionRule, StreamPhysicalProcessTableFunctionRule, StreamPhysicalPythonProcessTableFunctionRule}
 import org.apache.flink.table.planner.plan.rules.logical.{JoinToMultiJoinRule, _}
 import org.apache.flink.table.planner.plan.rules.physical.FlinkExpandConversionRule
 import org.apache.flink.table.planner.plan.rules.physical.common.PhysicalVectorSearchTableFunctionRule
@@ -489,6 +489,7 @@ object FlinkStreamRuleSets {
     StreamPhysicalWindowDeduplicateRule.INSTANCE,
     // process table function
     StreamPhysicalProcessTableFunctionRule.INSTANCE,
+    StreamPhysicalPythonProcessTableFunctionRule.INSTANCE,
     // model TVFs
     StreamPhysicalMLPredictTableFunctionRule.INSTANCE,
     PhysicalVectorSearchTableFunctionRule.STREAM_INSTANCE,

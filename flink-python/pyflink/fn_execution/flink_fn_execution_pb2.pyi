@@ -210,6 +210,135 @@ class UserDefinedAggregateFunctions(_message.Message):
     job_parameters: _containers.RepeatedCompositeFieldContainer[JobParameter]
     def __init__(self, udfs: _Optional[_Iterable[_Union[UserDefinedAggregateFunction, _Mapping]]] = ..., metric_enabled: bool = ..., grouping: _Optional[_Iterable[int]] = ..., generate_update_before: bool = ..., key_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ..., index_of_count_star: _Optional[int] = ..., state_cleaning_enabled: bool = ..., state_cache_size: _Optional[int] = ..., map_state_read_cache_size: _Optional[int] = ..., map_state_write_cache_size: _Optional[int] = ..., count_star_inserted: bool = ..., group_window: _Optional[_Union[GroupWindow, _Mapping]] = ..., profile_enabled: bool = ..., job_parameters: _Optional[_Iterable[_Union[JobParameter, _Mapping]]] = ...) -> None: ...
 
+class UserDefinedProcessTableFunction(_message.Message):
+    __slots__ = ("payload", "arguments", "state_slots", "uid", "emits_changelog", "has_on_timer", "runtime_context", "metric_enabled", "profile_enabled", "state_cache_size", "map_state_read_cache_size", "map_state_write_cache_size", "job_parameters")
+    class TableSemantics(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        ROW_SEMANTIC: _ClassVar[UserDefinedProcessTableFunction.TableSemantics]
+        SET_SEMANTIC: _ClassVar[UserDefinedProcessTableFunction.TableSemantics]
+    ROW_SEMANTIC: UserDefinedProcessTableFunction.TableSemantics
+    SET_SEMANTIC: UserDefinedProcessTableFunction.TableSemantics
+    class TimeType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        NO_TIME: _ClassVar[UserDefinedProcessTableFunction.TimeType]
+        INSTANT: _ClassVar[UserDefinedProcessTableFunction.TimeType]
+        LOCAL_DATE_TIME: _ClassVar[UserDefinedProcessTableFunction.TimeType]
+        LONG_MILLIS: _ClassVar[UserDefinedProcessTableFunction.TimeType]
+    NO_TIME: UserDefinedProcessTableFunction.TimeType
+    INSTANT: UserDefinedProcessTableFunction.TimeType
+    LOCAL_DATE_TIME: UserDefinedProcessTableFunction.TimeType
+    LONG_MILLIS: UserDefinedProcessTableFunction.TimeType
+    class ChangelogMode(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        INSERT_ONLY: _ClassVar[UserDefinedProcessTableFunction.ChangelogMode]
+        ALL_RETRACT: _ClassVar[UserDefinedProcessTableFunction.ChangelogMode]
+        UPSERT: _ClassVar[UserDefinedProcessTableFunction.ChangelogMode]
+        ALL_CHANGES: _ClassVar[UserDefinedProcessTableFunction.ChangelogMode]
+    INSERT_ONLY: UserDefinedProcessTableFunction.ChangelogMode
+    ALL_RETRACT: UserDefinedProcessTableFunction.ChangelogMode
+    UPSERT: UserDefinedProcessTableFunction.ChangelogMode
+    ALL_CHANGES: UserDefinedProcessTableFunction.ChangelogMode
+    class StateKind(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+        __slots__ = ()
+        VALUE_STATE: _ClassVar[UserDefinedProcessTableFunction.StateKind]
+        LIST_STATE: _ClassVar[UserDefinedProcessTableFunction.StateKind]
+        MAP_STATE: _ClassVar[UserDefinedProcessTableFunction.StateKind]
+    VALUE_STATE: UserDefinedProcessTableFunction.StateKind
+    LIST_STATE: UserDefinedProcessTableFunction.StateKind
+    MAP_STATE: UserDefinedProcessTableFunction.StateKind
+    class ScalarArgumentSpec(_message.Message):
+        __slots__ = ("type",)
+        TYPE_FIELD_NUMBER: _ClassVar[int]
+        type: Schema.FieldType
+        def __init__(self, type: _Optional[_Union[Schema.FieldType, _Mapping]] = ...) -> None: ...
+    class TableArgumentSpec(_message.Message):
+        __slots__ = ("row_type", "semantics", "partition_by_columns", "on_time_column", "time_type", "pass_through_columns", "require_on_time", "optional_partition_by", "input_changelog", "require_update_before", "require_full_delete", "supports_updates")
+        ROW_TYPE_FIELD_NUMBER: _ClassVar[int]
+        SEMANTICS_FIELD_NUMBER: _ClassVar[int]
+        PARTITION_BY_COLUMNS_FIELD_NUMBER: _ClassVar[int]
+        ON_TIME_COLUMN_FIELD_NUMBER: _ClassVar[int]
+        TIME_TYPE_FIELD_NUMBER: _ClassVar[int]
+        PASS_THROUGH_COLUMNS_FIELD_NUMBER: _ClassVar[int]
+        REQUIRE_ON_TIME_FIELD_NUMBER: _ClassVar[int]
+        OPTIONAL_PARTITION_BY_FIELD_NUMBER: _ClassVar[int]
+        INPUT_CHANGELOG_FIELD_NUMBER: _ClassVar[int]
+        REQUIRE_UPDATE_BEFORE_FIELD_NUMBER: _ClassVar[int]
+        REQUIRE_FULL_DELETE_FIELD_NUMBER: _ClassVar[int]
+        SUPPORTS_UPDATES_FIELD_NUMBER: _ClassVar[int]
+        row_type: Schema.FieldType
+        semantics: UserDefinedProcessTableFunction.TableSemantics
+        partition_by_columns: _containers.RepeatedScalarFieldContainer[int]
+        on_time_column: int
+        time_type: UserDefinedProcessTableFunction.TimeType
+        pass_through_columns: _containers.RepeatedScalarFieldContainer[int]
+        require_on_time: bool
+        optional_partition_by: bool
+        input_changelog: UserDefinedProcessTableFunction.ChangelogMode
+        require_update_before: bool
+        require_full_delete: bool
+        supports_updates: bool
+        def __init__(self, row_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ..., semantics: _Optional[_Union[UserDefinedProcessTableFunction.TableSemantics, str]] = ..., partition_by_columns: _Optional[_Iterable[int]] = ..., on_time_column: _Optional[int] = ..., time_type: _Optional[_Union[UserDefinedProcessTableFunction.TimeType, str]] = ..., pass_through_columns: _Optional[_Iterable[int]] = ..., require_on_time: bool = ..., optional_partition_by: bool = ..., input_changelog: _Optional[_Union[UserDefinedProcessTableFunction.ChangelogMode, str]] = ..., require_update_before: bool = ..., require_full_delete: bool = ..., supports_updates: bool = ...) -> None: ...
+    class ArgumentSpec(_message.Message):
+        __slots__ = ("name", "optional", "scalar", "table")
+        NAME_FIELD_NUMBER: _ClassVar[int]
+        OPTIONAL_FIELD_NUMBER: _ClassVar[int]
+        SCALAR_FIELD_NUMBER: _ClassVar[int]
+        TABLE_FIELD_NUMBER: _ClassVar[int]
+        name: str
+        optional: bool
+        scalar: UserDefinedProcessTableFunction.ScalarArgumentSpec
+        table: UserDefinedProcessTableFunction.TableArgumentSpec
+        def __init__(self, name: _Optional[str] = ..., optional: bool = ..., scalar: _Optional[_Union[UserDefinedProcessTableFunction.ScalarArgumentSpec, _Mapping]] = ..., table: _Optional[_Union[UserDefinedProcessTableFunction.TableArgumentSpec, _Mapping]] = ...) -> None: ...
+    class StateMapTypeInfo(_message.Message):
+        __slots__ = ("key_type", "value_type")
+        KEY_TYPE_FIELD_NUMBER: _ClassVar[int]
+        VALUE_TYPE_FIELD_NUMBER: _ClassVar[int]
+        key_type: Schema.FieldType
+        value_type: Schema.FieldType
+        def __init__(self, key_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ..., value_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ...) -> None: ...
+    class StateSpec(_message.Message):
+        __slots__ = ("name", "kind", "ttl_config", "value_type", "element_type", "map_type")
+        NAME_FIELD_NUMBER: _ClassVar[int]
+        KIND_FIELD_NUMBER: _ClassVar[int]
+        TTL_CONFIG_FIELD_NUMBER: _ClassVar[int]
+        VALUE_TYPE_FIELD_NUMBER: _ClassVar[int]
+        ELEMENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+        MAP_TYPE_FIELD_NUMBER: _ClassVar[int]
+        name: str
+        kind: UserDefinedProcessTableFunction.StateKind
+        ttl_config: StateDescriptor.StateTTLConfig
+        value_type: Schema.FieldType
+        element_type: Schema.FieldType
+        map_type: UserDefinedProcessTableFunction.StateMapTypeInfo
+        def __init__(self, name: _Optional[str] = ..., kind: _Optional[_Union[UserDefinedProcessTableFunction.StateKind, str]] = ..., ttl_config: _Optional[_Union[StateDescriptor.StateTTLConfig, _Mapping]] = ..., value_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ..., element_type: _Optional[_Union[Schema.FieldType, _Mapping]] = ..., map_type: _Optional[_Union[UserDefinedProcessTableFunction.StateMapTypeInfo, _Mapping]] = ...) -> None: ...
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ARGUMENTS_FIELD_NUMBER: _ClassVar[int]
+    STATE_SLOTS_FIELD_NUMBER: _ClassVar[int]
+    UID_FIELD_NUMBER: _ClassVar[int]
+    EMITS_CHANGELOG_FIELD_NUMBER: _ClassVar[int]
+    HAS_ON_TIMER_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_CONTEXT_FIELD_NUMBER: _ClassVar[int]
+    METRIC_ENABLED_FIELD_NUMBER: _ClassVar[int]
+    PROFILE_ENABLED_FIELD_NUMBER: _ClassVar[int]
+    STATE_CACHE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    MAP_STATE_READ_CACHE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    MAP_STATE_WRITE_CACHE_SIZE_FIELD_NUMBER: _ClassVar[int]
+    JOB_PARAMETERS_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    arguments: _containers.RepeatedCompositeFieldContainer[UserDefinedProcessTableFunction.ArgumentSpec]
+    state_slots: _containers.RepeatedCompositeFieldContainer[UserDefinedProcessTableFunction.StateSpec]
+    uid: str
+    emits_changelog: UserDefinedProcessTableFunction.ChangelogMode
+    has_on_timer: bool
+    runtime_context: UserDefinedDataStreamFunction.RuntimeContext
+    metric_enabled: bool
+    profile_enabled: bool
+    state_cache_size: int
+    map_state_read_cache_size: int
+    map_state_write_cache_size: int
+    job_parameters: _containers.RepeatedCompositeFieldContainer[JobParameter]
+    def __init__(self, payload: _Optional[bytes] = ..., arguments: _Optional[_Iterable[_Union[UserDefinedProcessTableFunction.ArgumentSpec, _Mapping]]] = ..., state_slots: _Optional[_Iterable[_Union[UserDefinedProcessTableFunction.StateSpec, _Mapping]]] = ..., uid: _Optional[str] = ..., emits_changelog: _Optional[_Union[UserDefinedProcessTableFunction.ChangelogMode, str]] = ..., has_on_timer: bool = ..., runtime_context: _Optional[_Union[UserDefinedDataStreamFunction.RuntimeContext, _Mapping]] = ..., metric_enabled: bool = ..., profile_enabled: bool = ..., state_cache_size: _Optional[int] = ..., map_state_read_cache_size: _Optional[int] = ..., map_state_write_cache_size: _Optional[int] = ..., job_parameters: _Optional[_Iterable[_Union[JobParameter, _Mapping]]] = ...) -> None: ...
+
 class Schema(_message.Message):
     __slots__ = ("fields",)
     class TypeName(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):

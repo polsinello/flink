@@ -191,6 +191,178 @@ message UserDefinedAggregateFunctions {
   repeated JobParameter job_parameters = 14;
 }
 
+// ------------------------------------------------------------------------
+// Process Table Functions (PTFs)
+// ------------------------------------------------------------------------
+
+// A user-defined Process Table Function (PTF). PTFs are stateful, timer-aware
+// table functions that can take one or more table-typed arguments plus optional
+// scalar arguments. They support row- and set-semantic table inputs, named state
+// slots with TTL, named/unnamed event-time and processing-time timers, changelog
+// I/O, and TableSemantics introspection.
+//
+// See: docs/proposals/pyflink-ptf-process-mode-design.md
+message UserDefinedProcessTableFunction {
+
+  // -------------------------------- enums --------------------------------
+
+  // Whether a table argument is processed row-by-row (no co-location guarantees)
+  // or set-semantic (PARTITION BY required, all rows for a key co-located on one
+  // virtual processor).
+  enum TableSemantics {
+    ROW_SEMANTIC = 0;
+    SET_SEMANTIC = 1;
+  }
+
+  // Time type bound to a TimeContext for a table argument. Determines what
+  // python type TimeContext.time() / .currentWatermark() returns.
+  enum TimeType {
+    NO_TIME = 0;          // No on_time descriptor bound.
+    INSTANT = 1;          // java.time.Instant in Java; Instant in Python (long ms).
+    LOCAL_DATE_TIME = 2;  // java.time.LocalDateTime; datetime in Python.
+    LONG_MILLIS = 3;      // long milliseconds since epoch.
+  }
+
+  // Changelog modes accepted on input or emitted on output. Matches Java's
+  // org.apache.flink.types.RowKind constraints.
+  enum ChangelogMode {
+    INSERT_ONLY = 0;      // +I only.
+    ALL_RETRACT = 1;      // +I, -U, +U, -D.
+    UPSERT = 2;           // +I, +U, -D (no update-before).
+    ALL_CHANGES = 3;      // No restriction; any RowKind.
+  }
+
+  // Kind of a declared @StateHint slot.
+  enum StateKind {
+    VALUE_STATE = 0;  // Single-element ValueState.
+    LIST_STATE = 1;   // ListView<T> wrapping ListState.
+    MAP_STATE = 2;    // MapView<K, V> wrapping MapState.
+  }
+
+  // ------------------------------- messages ------------------------------
+
+  // Schema of a scalar argument.
+  message ScalarArgumentSpec {
+    Schema.FieldType type = 1;
+    // Pickled scalar value bound at invocation time. Wire format mirrors
+    // Input.inputConstant: byte[0] is the j_type tag (0=basic types, 1=DATE,
+    // 2=TIME, 3=TIMESTAMP) and bytes[1:] are the razorvine-Pickler payload as
+    // produced by PythonBridgeUtils.pickleValue. Empty if the SQL invocation
+    // did not bind a value (caller will see the user_func default or None).
+    bytes bound_value = 2;
+  }
+
+  // Schema and metadata of a table-typed argument.
+  message TableArgumentSpec {
+    // Row schema of the input table.
+    Schema.FieldType row_type = 1;
+
+    // Row- or set-semantic.
+    TableSemantics semantics = 2;
+
+    // Indices into row_type.row_schema.fields for the resolved PARTITION BY columns.
+    // Empty for ROW_SEMANTIC, or for SET_SEMANTIC with OPTIONAL_PARTITION_BY when
+    // no partition was specified.
+    repeated int32 partition_by_columns = 3;
+
+    // Index into row_type for the bound on_time descriptor column. -1 if no on_time.
+    int32 on_time_column = 4;
+
+    // Bound time type for TimeContext (only meaningful if on_time_column >= 0).
+    TimeType time_type = 5;
+
+    // Indices into row_type for columns to pass through to the output.
+    // Empty if PASS_COLUMNS_THROUGH is not set.
+    repeated int32 pass_through_columns = 6;
+
+    // System args / argument traits.
+    bool require_on_time = 7;
+    bool optional_partition_by = 8;
+
+    // Changelog mode constraints on this input.
+    ChangelogMode input_changelog = 9;
+    bool require_update_before = 10;
+    bool require_full_delete = 11;
+    bool supports_updates = 12;
+  }
+
+  // A single argument to the PTF eval method (scalar or table).
+  message ArgumentSpec {
+    string name = 1;
+    bool optional = 2;
+    oneof kind {
+      ScalarArgumentSpec scalar = 3;
+      TableArgumentSpec table = 4;
+    }
+  }
+
+  // Map type info for a MAP_STATE slot. Mirrors Schema.MapInfo but kept local
+  // to PTF state declarations for forward compatibility.
+  message StateMapTypeInfo {
+    Schema.FieldType key_type = 1;
+    Schema.FieldType value_type = 2;
+  }
+
+  // A single @StateHint declaration on the PTF eval/onTimer signature.
+  message StateSpec {
+    // Logical state name used by the user (the @StateHint name).
+    string name = 1;
+
+    // Whether this slot is Value/List/Map.
+    StateKind kind = 2;
+
+    // Per-slot TTL configuration. Reuse the existing StateDescriptor.StateTTLConfig.
+    StateDescriptor.StateTTLConfig ttl_config = 3;
+
+    // Type info, dispatched on kind.
+    oneof type_info {
+      Schema.FieldType value_type = 4;     // For VALUE_STATE.
+      Schema.FieldType element_type = 5;   // For LIST_STATE.
+      StateMapTypeInfo map_type = 6;       // For MAP_STATE.
+    }
+  }
+
+  // ------------------------------- fields --------------------------------
+
+  // Pickled representation of the user's ProcessTableFunction subclass.
+  bytes payload = 1;
+
+  // The arguments expected by the eval() method, in declaration order.
+  // Scalar args appear at fixed positions; table args carry semantics + traits.
+  repeated ArgumentSpec arguments = 2;
+
+  // Declared @StateHint slots, in declaration order. Each slot is independently
+  // typed with its own TTL config.
+  repeated StateSpec state_slots = 3;
+
+  // PTF system-arg uid. Required if the same PTF is invoked multiple times in
+  // one statement; the planner derives a deterministic value otherwise.
+  // Used to disambiguate keyed state across calls: state_name_on_wire =
+  // "ptf:" + uid + ":" + slot_name.
+  string uid = 4;
+
+  // Output changelog mode the PTF declares it can emit.
+  ChangelogMode emits_changelog = 5;
+
+  // True if the user implemented onTimer(...). Determines whether the runner
+  // wires up the timer side channel.
+  bool has_on_timer = 6;
+
+  // Standard runtime context (subtask info, parallelism, job parameters).
+  // Reused from UserDefinedDataStreamFunction.
+  UserDefinedDataStreamFunction.RuntimeContext runtime_context = 7;
+
+  bool metric_enabled = 8;
+  bool profile_enabled = 9;
+
+  // State cache configs (LRU on the Python side). Same semantics as for UDAFs.
+  int32 state_cache_size = 10;
+  int32 map_state_read_cache_size = 11;
+  int32 map_state_write_cache_size = 12;
+
+  repeated JobParameter job_parameters = 13;
+}
+
 // A representation of the data schema.
 message Schema {
   enum TypeName {

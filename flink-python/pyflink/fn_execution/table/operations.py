@@ -71,6 +71,9 @@ PANDAS_AGGREGATE_FUNCTION_URN = "flink:transform:aggregate_function:arrow:v1"
 PANDAS_BATCH_OVER_WINDOW_AGGREGATE_FUNCTION_URN = \
     "flink:transform:batch_over_window_aggregate_function:arrow:v1"
 
+# Process Table Function (PTF)
+PROCESS_TABLE_FUNCTION_URN = "flink:transform:process_table_function:v1"
+
 
 class BundleOperation(object):
     def finish_bundle(self):

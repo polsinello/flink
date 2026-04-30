@@ -82,6 +82,7 @@ import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecMultipleI
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecOverAggregate;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecProcessTableFunction;
+import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonProcessTableFunction;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonCalc;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonCorrelate;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonGroupAggregate;
@@ -224,6 +225,7 @@ public final class ExecNodeMetadataUtil {
                     add(StreamExecLegacySink.class);
                     add(StreamExecGroupTableAggregate.class);
                     add(StreamExecPythonGroupTableAggregate.class);
+                    add(StreamExecPythonProcessTableFunction.class);
                     add(StreamExecMultipleInput.class);
                 }
             };

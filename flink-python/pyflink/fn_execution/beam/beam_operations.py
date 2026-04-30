@@ -123,9 +123,31 @@ def create_pandas_over_window_aggregate_function(
 
 @bundle_processor.BeamTransformFactory.register_urn(
     common_urns.primitives.PAR_DO.urn, beam_runner_api_pb2.ParDoPayload)
-def create_data_stream_keyed_process_function(factory, transform_id, transform_proto, parameter,
-                                              consumers):
+def create_par_do_function(factory, transform_id, transform_proto, parameter,
+                           consumers):
+    """
+    Beam PAR_DO transform handler. Dispatches on the inner do_fn URN to the
+    appropriate function-kind handler.
+
+    Several PyFlink function families wrap their payload in ParDoPayload to
+    enable timer-family attachment:
+      * DataStream KEYED_PROCESS / KEYED_CO_PROCESS / etc. (UserDefinedDataStreamFunction)
+      * Process Table Function (UserDefinedProcessTableFunction)  [v0]
+    """
     urn = parameter.do_fn.urn
+    if urn == table_operations.PROCESS_TABLE_FUNCTION_URN:
+        # Lazy import: process_table_operations has heavier transitive deps
+        # (cloudpickle, state proxies) that we don't want to drag in for
+        # non-PTF jobs.
+        from pyflink.fn_execution.table import process_table_operations
+        payload = proto_utils.parse_Bytes(
+            parameter.do_fn.payload,
+            flink_fn_execution_pb2.UserDefinedProcessTableFunction)
+        return _create_user_defined_function_operation(
+            factory, transform_proto, consumers, payload,
+            beam_operations.StatefulFunctionOperation,
+            process_table_operations.ProcessTableFunctionOperation)
+
     payload = proto_utils.parse_Bytes(
         parameter.do_fn.payload, flink_fn_execution_pb2.UserDefinedDataStreamFunction)
     if urn == datastream_operations.DATA_STREAM_STATELESS_FUNCTION_URN:
@@ -165,6 +187,55 @@ def _create_user_defined_function_operation(factory, transform_proto, consumers,
         )
     else:
         operator_state_backend = None
+
+    # Process Table Function: keyed when any table arg is SET_SEMANTIC
+    # (PARTITION BY); the partition-key schema is the projection of the
+    # table arg's row schema onto the partition_by_columns indices.
+    # Mirrors the KEYED_PROCESS branch below but derives the key schema
+    # from PTF-specific proto fields rather than serialized_fn.key_type.
+    if isinstance(serialized_fn, flink_fn_execution_pb2.UserDefinedProcessTableFunction):
+        set_semantic_table = None
+        for arg in serialized_fn.arguments:
+            if arg.HasField('table') and (
+                    arg.table.semantics
+                    == flink_fn_execution_pb2.UserDefinedProcessTableFunction.SET_SEMANTIC):
+                set_semantic_table = arg.table
+                break
+        if set_semantic_table is not None:
+            all_fields = set_semantic_table.row_type.row_schema.fields
+            partition_indices = list(set_semantic_table.partition_by_columns)
+            key_field_coders = [
+                from_proto(all_fields[i].type) for i in partition_indices
+            ]
+            key_row_coder = FlattenRowCoder(key_field_coders)
+            keyed_state_backend = RemoteKeyedStateBackend(
+                factory.state_handler,
+                key_row_coder,
+                None,
+                serialized_fn.state_cache_size,
+                serialized_fn.map_state_read_cache_size,
+                serialized_fn.map_state_write_cache_size)
+            return beam_operation_cls(
+                name,
+                spec,
+                factory.counter_factory,
+                factory.state_sampler,
+                consumers,
+                internal_operation_cls,
+                keyed_state_backend,
+                operator_state_backend,
+            )
+        # ROW_SEMANTIC PTF (no partition key) — non-keyed dispatch.
+        return beam_operation_cls(
+            name,
+            spec,
+            factory.counter_factory,
+            factory.state_sampler,
+            consumers,
+            internal_operation_cls,
+            None,
+            operator_state_backend,
+        )
 
     if hasattr(serialized_fn, "key_type"):
         # keyed operation, need to create the KeyedStateBackend.

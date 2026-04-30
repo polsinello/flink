@@ -825,6 +825,71 @@ class Table(object):
             func._set_takes_row_as_input()
             return Table(self._j_table.flatMap(func(with_columns(col("*")))._j_expr), self._t_env)
 
+    def process(self, function, *arguments: Expression) -> 'Table':
+        """
+        Calls a Process Table Function (PTF) with this table as its table argument.
+
+        This is the Table API equivalent of ``SELECT * FROM f(input => TABLE t, ...)``.
+        The receiving table is passed as the (single) table argument; remaining call
+        arguments — scalars, named arguments, and descriptors — follow.
+
+        Example:
+        ::
+
+            >>> @ptf(output_type=...)
+            ... class MyFunction(ProcessTableFunction): ...
+            >>> my_func = ptf(MyFunction(), output_type=...)
+            >>> table.process(my_func, lit(5).as_argument("threshold"))
+
+        For a set-semantic (keyed) table argument, partition first:
+        ::
+
+            >>> table.partition_by(col("user_id")).process(my_func)
+
+        :param function: A PTF created via :func:`~pyflink.table.ptf`, or the name of a
+            function already registered in the catalog.
+        :param arguments: Remaining call arguments, e.g. ``lit(5).as_argument("name")``
+            or ``descriptor("ts").as_argument("on_time")``.
+        :return: The result table.
+        """
+        name = _resolve_ptf_function(self._t_env, function)
+        gateway = get_gateway()
+        j_args = to_jarray(gateway.jvm.Object,
+                           [_get_java_expression(arg, True) for arg in arguments])
+        return Table(self._j_table.process(name, j_args), self._t_env)
+
+    def partition_by(self, *fields: Expression) -> 'PartitionedTable':
+        """
+        Partitions this table by the given key columns for use as a set-semantic
+        table argument of a Process Table Function. The keys define the PARTITION BY
+        grouping under which the PTF sees per-key state and timers.
+
+        Chain with :func:`process`:
+        ::
+
+            >>> table.partition_by(col("user_id")).process(my_func)
+
+        :param fields: The partition key columns.
+        :return: A :class:`PartitionedTable` on which to call :func:`process`.
+        """
+        return PartitionedTable(
+            self._j_table.partitionBy(to_expression_jarray(fields)), self._t_env)
+
+    def as_argument(self, name: str) -> Expression:
+        """
+        Wraps this table as a named argument, for passing to
+        :func:`~pyflink.table.TableEnvironment.from_call`.
+
+        Example:
+        ::
+
+            >>> t_env.from_call(my_func, table.as_argument("input_table"))
+
+        :param name: The argument name as declared by the PTF.
+        :return: An expression usable as a ``from_call`` argument.
+        """
+        return Expression(self._j_table.asArgument(name))
+
     def aggregate(self, func: Union[Expression, UserDefinedAggregateFunctionWrapper]) \
             -> 'AggregatedTable':
         """
@@ -1186,6 +1251,66 @@ class Table(object):
                 ),
                 t_env=self._t_env,
             )
+
+
+def _resolve_ptf_function(t_env, function) -> str:
+    """
+    Resolve a PTF passed to ``process``/``from_call`` to a registered function name.
+
+    Accepts either the name of an already-registered function, or a
+    ``ProcessTableFunction`` created via :func:`~pyflink.table.ptf`, which is
+    registered inline (under a generated temporary name, once per environment).
+    """
+    from pyflink.table.process_table_function import UserDefinedProcessTableFunctionWrapper
+    if isinstance(function, str):
+        return function
+    if isinstance(function, UserDefinedProcessTableFunctionWrapper):
+        return function._register_inline(t_env)
+    raise TypeError(
+        "process()/from_call() expects a ProcessTableFunction created via ptf(), "
+        "or the name of a registered function; got %s" % type(function).__name__)
+
+
+@PublicEvolving()
+class PartitionedTable(object):
+    """
+    A table partitioned by one or more key columns, produced by
+    :func:`Table.partition_by`. Pass it to a Process Table Function via
+    :func:`process`; the partition keys define the set-semantic (PARTITION BY)
+    grouping under which the PTF sees per-key state and timers.
+    """
+
+    def __init__(self, j_partitioned_table, t_env):
+        self._j_partitioned_table = j_partitioned_table
+        self._t_env = t_env
+
+    def process(self, function, *arguments: Expression) -> 'Table':
+        """
+        Calls a Process Table Function with this partitioned table as its
+        set-semantic table argument.
+
+        :param function: A PTF created via :func:`~pyflink.table.ptf`, or the name
+            of a registered function.
+        :param arguments: Remaining call arguments (scalars, named arguments,
+            descriptors).
+        :return: The result table.
+        """
+        name = _resolve_ptf_function(self._t_env, function)
+        gateway = get_gateway()
+        j_args = to_jarray(gateway.jvm.Object,
+                           [_get_java_expression(arg, True) for arg in arguments])
+        return Table(self._j_partitioned_table.process(name, j_args), self._t_env)
+
+    def as_argument(self, name: str) -> Expression:
+        """
+        Wraps this partitioned table as a named argument, for passing to
+        :func:`~pyflink.table.TableEnvironment.from_call` (e.g. for a PTF with
+        multiple set-semantic table arguments).
+
+        :param name: The argument name as declared by the PTF.
+        :return: An expression usable as a ``from_call`` argument.
+        """
+        return Expression(self._j_partitioned_table.asArgument(name))
 
 
 @PublicEvolving()

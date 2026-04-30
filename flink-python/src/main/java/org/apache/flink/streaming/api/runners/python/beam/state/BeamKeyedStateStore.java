@@ -199,10 +199,16 @@ public class BeamKeyedStateStore implements BeamStateStore {
 
     private void setCurrentKey(Object key) {
         if (keyedStateBackend.getKeySerializer() instanceof RowDataSerializer) {
+            // RowDataSerializer.toBinaryRow returns a shared, reused BinaryRowData.
+            // The heap state backend's CopyOnWriteStateMap stores the key by
+            // reference without copying, so without this copy every per-key state
+            // entry (and timer-queue entry) would alias the same buffer and collapse
+            // to whatever it last held on snapshot.
             setCurrentKeyForStreaming(
                     (KeyedStateBackend<? super BinaryRowData>) keyedStateBackend,
                     ((RowDataSerializer) keyedStateBackend.getKeySerializer())
-                            .toBinaryRow((RowData) key));
+                            .toBinaryRow((RowData) key)
+                            .copy());
         } else {
             setCurrentKeyForStreaming((KeyedStateBackend<Object>) keyedStateBackend, key);
         }

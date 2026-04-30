@@ -73,6 +73,7 @@ import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlAggFunction;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.calcite.sql.fun.SqlCastFunction;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -172,6 +173,17 @@ public class CommonPythonUtil {
 
         } catch (IllegalAccessException | NoSuchFieldException e) {
             throw new TableException("Field PYTHON_EXECUTION_MODE accessed failed.", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public static int getStateCacheSize(Configuration config, ClassLoader classLoader) {
+        Class<?> clazz = loadClass(PYTHON_OPTIONS_CLASS, classLoader);
+        try {
+            return config.get(
+                    (ConfigOption<Integer>) (clazz.getField("STATE_CACHE_SIZE").get(null)));
+        } catch (IllegalAccessException | NoSuchFieldException e) {
+            throw new TableException("Field STATE_CACHE_SIZE accessed failed.", e);
         }
     }
 
@@ -341,71 +353,164 @@ public class CommonPythonUtil {
                         });
     }
 
-    private static byte[] convertLiteralToPython(
+    /**
+     * Pickle a Calcite {@link RexLiteral} into the wire format consumed by the Python worker.
+     *
+     * <p>The first byte is a {@code j_type} tag (0=basic types, 1=DATE, 2=TIME, 3=TIMESTAMP), and
+     * the rest is razorvine-Pickler output produced by {@code PythonBridgeUtils.pickleValue}.
+     * Mirrors {@code Input.inputConstant} so the same Python decoder ({@code _parse_constant_value}
+     * in {@code operation_utils.py}) works for both UDF args and PTF scalar args.
+     *
+     * <p>Made package-public so {@code StreamExecPythonProcessTableFunction} can reuse it when
+     * baking PTF scalar literals into the spec at translate time.
+     */
+    public static byte[] convertLiteralToPython(
             RexLiteral o, SqlTypeName typeName, ClassLoader classLoader)
             throws InvocationTargetException, IllegalAccessException {
-        byte type;
-        Object value;
-        if (o.getValue3() == null) {
-            type = 0;
-            value = null;
-        } else {
-            switch (typeName) {
-                case TINYINT:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).byteValueExact();
-                    break;
-                case SMALLINT:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).shortValueExact();
-                    break;
-                case INTEGER:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).intValueExact();
-                    break;
-                case BIGINT:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).longValueExact();
-                    break;
-                case FLOAT:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).floatValue();
-                    break;
-                case DOUBLE:
-                    type = 0;
-                    value = ((BigDecimal) o.getValue3()).doubleValue();
-                    break;
-                case DECIMAL:
-                case BOOLEAN:
-                    type = 0;
-                    value = o.getValue3();
-                    break;
-                case CHAR:
-                case VARCHAR:
-                    type = 0;
-                    value = o.getValue3().toString();
-                    break;
-                case DATE:
-                    type = 1;
-                    value = o.getValue3();
-                    break;
-                case TIME:
-                    type = 2;
-                    value = o.getValue3();
-                    break;
-                case TIMESTAMP:
-                    type = 3;
-                    value = o.getValue3();
-                    break;
-                default:
-                    throw new RuntimeException("Unsupported type " + typeName);
-            }
-        }
+        final byte type = pickleTypeTag(o, typeName);
+        final Object value = literalValue(o, typeName);
         loadPickleValue(classLoader);
         return (byte[]) pickleValue.invoke(null, value, type);
     }
 
-    private static void loadPickleValue(ClassLoader classLoader) {
+    /**
+     * Bake a PTF scalar argument operand into the wire format consumed by {@code
+     * _decode_bound_scalar} in the Python worker. In addition to plain {@link RexLiteral}s, this
+     * accepts the {@code ARRAY}/{@code ROW}/{@code MAP} value constructors and the {@code
+     * DESCRIPTOR} column-list call, recursively converting them into a pickled Python
+     * list/Row-as-list/dict. Composite values always use the {@code j_type=0} tag (basic types),
+     * so the worker reads the unpickled container directly.
+     *
+     * @return the wire bytes, or {@code null} when the operand is not a literal or a supported
+     *     composite constructor.
+     */
+    public static byte[] convertRexNodeToPython(RexNode operand, ClassLoader classLoader)
+            throws InvocationTargetException, IllegalAccessException {
+        if (operand instanceof RexLiteral) {
+            final RexLiteral literal = (RexLiteral) operand;
+            return convertLiteralToPython(
+                    literal, literal.getType().getSqlTypeName(), classLoader);
+        }
+        final Object value = rexNodeValue(operand);
+        if (value == NOT_A_LITERAL) {
+            return null;
+        }
+        loadPickleValue(classLoader);
+        return (byte[]) pickleValue.invoke(null, value, (byte) 0);
+    }
+
+    /** Sentinel marking an operand that is neither a literal nor a supported composite. */
+    private static final Object NOT_A_LITERAL = new Object();
+
+    /**
+     * Recursively extract the Java value of a literal or composite constructor operand, suitable
+     * for razorvine pickling into a Python value. Returns {@link #NOT_A_LITERAL} for anything that
+     * cannot be baked at plan time (e.g. an input reference).
+     */
+    private static Object rexNodeValue(RexNode operand) {
+        if (operand instanceof RexLiteral) {
+            final RexLiteral literal = (RexLiteral) operand;
+            return literalValue(literal, literal.getType().getSqlTypeName());
+        }
+        if (!(operand instanceof RexCall)) {
+            return NOT_A_LITERAL;
+        }
+        // Flink subclasses the ARRAY/ROW/MAP_VALUE_CONSTRUCTOR operators, so compare by SqlKind
+        // rather than operator identity.
+        final RexCall call = (RexCall) operand;
+        final SqlKind kind = call.getKind();
+        // CAST(ROW(..)/ARRAY[..]/literal AS T): the cast only carries type/field-name
+        // metadata the worker rebuilds from its own output type — bake the inner value.
+        if (call.getOperator() instanceof SqlCastFunction && call.getOperands().size() == 1) {
+            return rexNodeValue(call.getOperands().get(0));
+        }
+        if (kind == SqlKind.ARRAY_VALUE_CONSTRUCTOR || kind == SqlKind.DESCRIPTOR) {
+            final List<Object> elements = new ArrayList<>(call.getOperands().size());
+            for (RexNode element : call.getOperands()) {
+                final Object converted = rexNodeValue(element);
+                if (converted == NOT_A_LITERAL) {
+                    return NOT_A_LITERAL;
+                }
+                elements.add(converted);
+            }
+            return elements;
+        }
+        if (kind == SqlKind.ROW) {
+            final List<Object> fields = new ArrayList<>(call.getOperands().size());
+            for (RexNode field : call.getOperands()) {
+                final Object converted = rexNodeValue(field);
+                if (converted == NOT_A_LITERAL) {
+                    return NOT_A_LITERAL;
+                }
+                fields.add(converted);
+            }
+            return fields;
+        }
+        if (kind == SqlKind.MAP_VALUE_CONSTRUCTOR) {
+            // MAP[k1, v1, k2, v2, ...] — operands alternate key, value.
+            final List<RexNode> entries = call.getOperands();
+            final Map<Object, Object> map = new LinkedHashMap<>();
+            for (int i = 0; i + 1 < entries.size(); i += 2) {
+                final Object key = rexNodeValue(entries.get(i));
+                final Object val = rexNodeValue(entries.get(i + 1));
+                if (key == NOT_A_LITERAL || val == NOT_A_LITERAL) {
+                    return NOT_A_LITERAL;
+                }
+                map.put(key, val);
+            }
+            return map;
+        }
+        return NOT_A_LITERAL;
+    }
+
+    private static byte pickleTypeTag(RexLiteral o, SqlTypeName typeName) {
+        if (o.getValue3() == null) {
+            return 0;
+        }
+        switch (typeName) {
+            case DATE:
+                return 1;
+            case TIME:
+                return 2;
+            case TIMESTAMP:
+                return 3;
+            default:
+                return 0;
+        }
+    }
+
+    private static Object literalValue(RexLiteral o, SqlTypeName typeName) {
+        if (o.getValue3() == null) {
+            return null;
+        }
+        switch (typeName) {
+            case TINYINT:
+                return ((BigDecimal) o.getValue3()).byteValueExact();
+            case SMALLINT:
+                return ((BigDecimal) o.getValue3()).shortValueExact();
+            case INTEGER:
+                return ((BigDecimal) o.getValue3()).intValueExact();
+            case BIGINT:
+                return ((BigDecimal) o.getValue3()).longValueExact();
+            case FLOAT:
+                return ((BigDecimal) o.getValue3()).floatValue();
+            case DOUBLE:
+                return ((BigDecimal) o.getValue3()).doubleValue();
+            case DECIMAL:
+            case BOOLEAN:
+            case DATE:
+            case TIME:
+            case TIMESTAMP:
+                return o.getValue3();
+            case CHAR:
+            case VARCHAR:
+                return o.getValue3().toString();
+            default:
+                throw new RuntimeException("Unsupported type " + typeName);
+        }
+    }
+
+    static void loadPickleValue(ClassLoader classLoader) {
         if (pickleValue == null) {
             synchronized (CommonPythonUtil.class) {
                 if (pickleValue == null) {

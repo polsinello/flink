@@ -528,6 +528,38 @@ class TableEnvironment(object):
         """
         return Table(get_method(self._j_tenv, "from")(path), self)
 
+    def from_call(self, function, *arguments) -> Table:
+        """
+        Calls a Process Table Function (PTF) and returns its result as a
+        :class:`~pyflink.table.Table`.
+
+        This is the fully-named Table API form: every table argument is supplied
+        via :func:`~pyflink.table.Table.as_argument` rather than as a ``.process``
+        receiver, which allows multiple table arguments and explicit argument names.
+
+        Example:
+        ::
+
+            >>> from pyflink.table.expressions import col, lit
+            >>> t_env.from_call(
+            ...     my_func,
+            ...     table_a.partition_by(col("k")).as_argument("input"),
+            ...     lit(5).as_argument("threshold"))
+
+        :param function: A PTF created via :func:`~pyflink.table.ptf`, or the name of
+            a function already registered in the catalog.
+        :param arguments: The call arguments — table arguments wrapped via
+            ``as_argument``, plus scalars/descriptors.
+        :return: The result table.
+        """
+        from pyflink.table.table import _resolve_ptf_function
+        from pyflink.table.expression import _get_java_expression
+        name = _resolve_ptf_function(self, function)
+        gateway = get_gateway()
+        j_args = to_jarray(gateway.jvm.Object,
+                           [_get_java_expression(arg, True) for arg in arguments])
+        return Table(self._j_tenv.fromCall(name, j_args), self)
+
     def from_descriptor(self, descriptor: TableDescriptor) -> Table:
         """
         Returns a Table backed by the given TableDescriptor.

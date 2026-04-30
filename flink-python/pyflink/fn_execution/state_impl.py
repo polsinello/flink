@@ -121,8 +121,22 @@ class SynchronousKvRuntimeState(InternalKvState, ABC):
             self._cache_type = SynchronousKvRuntimeState.CacheType.ENABLE_WRITE_CACHE
 
         if self._cache_type != SynchronousKvRuntimeState.CacheType.ENABLE_READ_WRITE_CACHE:
-            # disable read cache
-            self._remote_state_backend._state_handler._state_cache._cache._max_entries = 0
+            # Disable read cache. Beam's StateCache (state_handler._state_cache)
+            # gates lookups on `_max_weight > 0` via is_cache_enabled(); zero it
+            # AND drop existing entries so previously-cached values don't leak
+            # past TTL. Also set `_max_entries=0` on PyFlink's inner LRUCache
+            # for backwards compat with the prior path.
+            beam_cache = self._remote_state_backend._state_handler._state_cache
+            beam_cache._max_weight = 0
+            try:
+                beam_cache.invalidate_all()
+            except AttributeError:
+                # Older Beam: drop entries directly.
+                beam_cache._cache.clear()
+                beam_cache._current_weight = 0
+            inner = getattr(beam_cache, "_cache", None)
+            if inner is not None and hasattr(inner, "_max_entries"):
+                inner._max_entries = 0
 
     @abstractmethod
     def get_internal_state(self):

@@ -25,7 +25,8 @@ from pyflink.table.udf import UserDefinedFunctionWrapper
 from pyflink.util.api_stability_decorators import PublicEvolving
 from pyflink.util.java_utils import to_jarray, load_java_class
 
-__all__ = ['if_then_else', 'lit', 'col', 'range_', 'and_', 'or_', 'not_', 'UNBOUNDED_ROW',
+__all__ = ['if_then_else', 'lit', 'col', 'descriptor', 'range_', 'and_', 'or_', 'not_',
+           'UNBOUNDED_ROW',
            'UNBOUNDED_RANGE', 'CURRENT_ROW', 'CURRENT_RANGE', 'current_database',
            'current_date', 'current_time', 'current_timestamp',
            'current_watermark', 'local_time', 'local_timestamp',
@@ -100,6 +101,24 @@ def col(name: str) -> Expression:
     .. seealso:: :func:`~pyflink.table.expressions.with_all_columns`
     """
     return _unary_op("col", name)
+
+
+@PublicEvolving()
+def descriptor(*column_names: str) -> Expression:
+    """
+    Creates a descriptor that lists column names, as used for the ``on_time`` argument
+    of a Process Table Function.
+
+    Example:
+    ::
+
+        >>> table.process(my_func, descriptor("ts").as_argument("on_time"))
+
+    :param column_names: the column names referenced by the descriptor.
+    """
+    gateway = get_gateway()
+    return Expression(gateway.jvm.Expressions.descriptor(
+        to_jarray(gateway.jvm.String, column_names)))
 
 
 @PublicEvolving()

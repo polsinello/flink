@@ -35,9 +35,9 @@ import java.util.Map;
 
 /** Handles the interaction with the Python worker for registering and deleting timers. */
 @Internal
-public final class TimerRegistration {
+public class TimerRegistration {
 
-    private final KeyedStateBackend<Row> keyedStateBackend;
+    private final KeyedStateBackend<?> keyedStateBackend;
     private final InternalTimerService internalTimerService;
     private final KeyContext keyContext;
     private final TypeSerializer namespaceSerializer;
@@ -45,13 +45,22 @@ public final class TimerRegistration {
     private final ByteArrayInputStreamWithPos bais;
     private final DataInputViewStreamWrapper baisWrapper;
 
+    /**
+     * Constructor accepting any keyed-state-backend key type. DataStream-API operators are
+     * keyed on {@code Row} and use the default {@link #convertExternalKey(Row)} (identity);
+     * subclasses keyed on a different type (e.g. {@code RowData} for Process Table Functions)
+     * override the hook to bridge the wire {@code Row} to the operator's actual key type.
+     *
+     * <p>Wildcard parameter chosen over {@code <Row>} so a single constructor signature
+     * serves both the legacy DataStream API (Row-keyed) and PTF (RowData-keyed) call sites
+     * without an erasure-clashing overload.
+     */
     public TimerRegistration(
-            KeyedStateBackend<Row> keyedStateBackend,
+            KeyedStateBackend<?> keyedStateBackend,
             InternalTimerService internalTimerService,
             KeyContext keyContext,
             TypeSerializer namespaceSerializer,
-            TypeSerializer<Row> timerDataSerializer)
-            throws Exception {
+            TypeSerializer<Row> timerDataSerializer) {
         this.keyedStateBackend = keyedStateBackend;
         this.internalTimerService = internalTimerService;
         this.keyContext = keyContext;
@@ -67,7 +76,7 @@ public final class TimerRegistration {
             Row timerData = timerDataSerializer.deserialize(baisWrapper);
             TimerOperandType operandType = TimerOperandType.valueOf((byte) timerData.getField(0));
             long timestamp = (long) timerData.getField(2);
-            Row key = (Row) timerData.getField(3);
+            Object key = convertExternalKey((Row) timerData.getField(3));
 
             Object namespace;
             if (namespaceSerializer instanceof VoidNamespaceSerializer) {
@@ -85,7 +94,15 @@ public final class TimerRegistration {
         }
     }
 
-    private void setTimer(TimerOperandType operandType, long timestamp, Row key, Object namespace)
+    /**
+     * Hook for subclasses keyed on a different type than the wire format. Default identity
+     * — DataStream API operators are keyed on {@code Row} and need no conversion.
+     */
+    protected Object convertExternalKey(Row externalKey) {
+        return externalKey;
+    }
+
+    private void setTimer(TimerOperandType operandType, long timestamp, Object key, Object namespace)
             throws Exception {
         synchronized (keyedStateBackend) {
             keyContext.setCurrentKey(key);
